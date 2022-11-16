@@ -200,6 +200,7 @@ contract Router is IRouter, Multicall, SelfPermit, Deadline {
     )
         private
         returns (
+            uint256 receivingTokenId,
             uint256 tokenAAmount,
             uint256 tokenBAmount,
             IPool.BinDelta[] memory binDeltas
@@ -212,6 +213,7 @@ contract Router is IRouter, Multicall, SelfPermit, Deadline {
                 tokenId = IPosition(position).mint(msg.sender);
             }
         }
+        receivingTokenId = tokenId;
         AddLiquidityCallbackData memory data = AddLiquidityCallbackData({tokenA: pool.tokenA(), tokenB: pool.tokenB(), pool: pool, payer: msg.sender});
         (tokenAAmount, tokenBAmount, binDeltas) = pool.addLiquidity(tokenId, params, abi.encode(data));
         require(tokenAAmount >= minTokenAAmount && tokenBAmount >= minTokenBAmount, "Too little added");
@@ -229,6 +231,7 @@ contract Router is IRouter, Multicall, SelfPermit, Deadline {
         payable
         checkDeadline(deadline)
         returns (
+            uint256 receivingTokenId,
             uint256 tokenAAmount,
             uint256 tokenBAmount,
             IPool.BinDelta[] memory binDeltas
@@ -251,6 +254,7 @@ contract Router is IRouter, Multicall, SelfPermit, Deadline {
         payable
         checkDeadline(deadline)
         returns (
+            uint256 receivingTokenId,
             uint256 tokenAAmount,
             uint256 tokenBAmount,
             IPool.BinDelta[] memory binDeltas
@@ -281,6 +285,7 @@ contract Router is IRouter, Multicall, SelfPermit, Deadline {
         payable
         checkDeadline(deadline)
         returns (
+            uint256 receivingTokenId,
             uint256 tokenAAmount,
             uint256 tokenBAmount,
             IPool.BinDelta[] memory binDeltas

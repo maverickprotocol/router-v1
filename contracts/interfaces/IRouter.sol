@@ -115,6 +115,7 @@ interface IRouter is ISwapCallback {
         external
         payable
         returns (
+            uint256 receivingTokenId,
             uint256 tokenAAmount,
             uint256 tokenBAmount,
             IPool.BinDelta[] memory binDeltas
@@ -137,6 +138,7 @@ interface IRouter is ISwapCallback {
         external
         payable
         returns (
+            uint256 receivingTokenId,
             uint256 tokenAAmount,
             uint256 tokenBAmount,
             IPool.BinDelta[] memory binDeltas
@@ -163,6 +165,7 @@ interface IRouter is ISwapCallback {
         external
         payable
         returns (
+            uint256 receivingTokenId,
             uint256 tokenAAmount,
             uint256 tokenBAmount,
             IPool.BinDelta[] memory binDeltas
