@@ -19,6 +19,17 @@ contract Router is IRouter, Multicall, SelfPermit, Deadline {
     uint256 private constant DEFAULT_AMOUNT_IN_CACHED = type(uint256).max;
     /// @dev Transient storage variable used for returning the computed amount in for an exact output swap.
     uint256 private amountInCached = DEFAULT_AMOUNT_IN_CACHED;
+    struct AddLiquidityCallbackData {
+        IERC20 tokenA;
+        IERC20 tokenB;
+        IPool pool;
+        address payer;
+    }
+    struct SwapCallbackData {
+        bytes path;
+        address payer;
+        bool exactOutput;
+    }
     /// @inheritdoc IRouter
     IFactory public immutable override factory;
     /// @inheritdoc IRouter

@@ -16,7 +16,7 @@
   },
   "dependencies": {
     "@maverick/contracts": "file:../maverick/javascript/swap/packages/contracts",
-    "@openzeppelin/contracts": "^4.1.0",
+    "@openzeppelin/contracts": "<4.8.0",
     "@tenderly/hardhat-tenderly": "^1.0.13",
     "base64-sol": "^1.0.1",
     "hardhat-tracer": "^1.0.0-alpha.6",

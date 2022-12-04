@@ -24,7 +24,7 @@ const config: HardhatUserConfig = {
         settings: {
           optimizer: {
             enabled: true,
-            runs: 200
+            runs: 20
           },
         }
       }
@@ -108,7 +108,6 @@ const config: HardhatUserConfig = {
   gasReporter: {
     currency: 'USD',
     enabled: true,
-    coinmarketcap: "a501551b-2376-497b-8dc0-2ac09c93f23e",
     maxMethodDiff: 10,
   },
   mocha: {

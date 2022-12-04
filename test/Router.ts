@@ -11,6 +11,7 @@ import {
   IWETH9,
   IERC20,
   PoolInspector,
+  Pool__factory,
 } from "../typechain";
 
 import {
@@ -983,6 +984,18 @@ describe("Router", () => {
           floatToFixed(1),
         ])
       ).to.be.revertedWith("Too much requested");
+    });
+  });
+
+  describe("#migrate bins", () => {
+    it("returns pool event for migration when called", async () => {
+      let _fee = 0.01 / 100;
+      let pool: string = await getPool(_fee, tokenA, tokenB, 50, 50);
+      let poolContract = await Pool__factory.connect(pool, owner);
+
+      await expect(
+        router.migrateBinsUpStack(pool, [0, 1, 3], 0, maxDeadline)
+      ).to.emit(poolContract, "MigrateBinsUpStack");
     });
   });
 });

@@ -4,8 +4,8 @@ import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import "@maverick/contracts/contracts/interfaces/IFactory.sol";
 import "@maverick/contracts/contracts/interfaces/IPool.sol";
 import "@maverick/contracts/contracts/interfaces/IPosition.sol";
+import "@maverick/contracts/contracts/interfaces/ISwapCallback.sol";
 import "./external/IWETH9.sol";
-import "./ISwapCallback.sol";
 interface IRouter is ISwapCallback {
     /// @return Returns the address of the factory
     function factory() external view returns (IFactory);
