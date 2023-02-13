@@ -6,7 +6,8 @@ import chaiAsPromised from "chai-as-promised";
 import {
   Factory,
   Position,
-  Router,
+  SlimRouter as Router,
+  Router as FatRouter,
   TestERC20,
   IWETH9,
   IERC20,
@@ -18,7 +19,8 @@ import {
   deployERC20Token,
   deployPosition,
   deployFactory,
-  deployRouter,
+  deploySlimRouter as deployRouter,
+  deployRouter as deployFatRouter,
   deployPoolInspector,
   deployWETH9,
 } from "./shared/deploy";
@@ -27,7 +29,7 @@ import { fixedToFloat, floatToFixed, encodePath } from "./shared/utils";
 
 use(chaiAsPromised);
 
-describe("Router", () => {
+describe("SlimRouter", () => {
   let owner: Signer;
   let addr1: Signer;
   let tokenA: TestERC20;
@@ -36,6 +38,7 @@ describe("Router", () => {
   let factory: Factory;
   let poolInspector: PoolInspector;
   let router: Router;
+  let fatRouter: FatRouter;
   let weth9: IWETH9;
   let maxDeadline: number = 1e13;
   let tickSpacing: bigint = BigInt(
@@ -97,10 +100,15 @@ describe("Router", () => {
     poolInspector = await deployPoolInspector();
     factory = await deployFactory({
       protocolFeeRatio: 0.25 * 1000,
+      lookback: 60 * 60,
       position: position.address,
     });
 
     router = await deployRouter({
+      factory: factory.address,
+      weth9: weth9.address,
+    });
+    fatRouter = await deployFatRouter({
       factory: factory.address,
       weth9: weth9.address,
     });
@@ -113,10 +121,13 @@ describe("Router", () => {
 
     await tokenA.mint(await owner.getAddress(), floatToFixed(3000));
     await tokenA.approve(router.address, floatToFixed(3000));
+    await tokenA.approve(fatRouter.address, floatToFixed(3000));
     await tokenB.mint(await owner.getAddress(), floatToFixed(3000));
     await tokenB.approve(router.address, floatToFixed(3000));
+    await tokenB.approve(fatRouter.address, floatToFixed(3000));
     await weth9.deposit({ value: floatToFixed(300) });
     await weth9.approve(router.address, floatToFixed(300));
+    await weth9.approve(fatRouter.address, floatToFixed(300));
 
     getPool = async (
       _fee: number,
@@ -126,7 +137,7 @@ describe("Router", () => {
       amount1: number,
       _lookback: BigInt = BigInt(3600e18)
     ) => {
-      await router.getOrCreatePoolAndAddLiquidity(
+      await fatRouter.getOrCreatePoolAndAddLiquidity(
         [
           floatToFixed(_fee),
           tickSpacing,
@@ -161,7 +172,7 @@ describe("Router", () => {
     getEthBPool = async (
       _fee: number,
       amount: number,
-      _lookback: BigInt = BigInt(3600e18)
+      _lookback: number = BigInt(3600e18)
     ) => {
       return await getPool(
         _fee,
@@ -178,308 +189,6 @@ describe("Router", () => {
         _lookback
       );
     };
-  });
-
-  describe("#getOrCreatePoolAndAddLiquidity", () => {
-    it("is able to create pool and add liquidity", async () => {
-      await expect(
-        router.getOrCreatePoolAndAddLiquidity(
-          [
-            floatToFixed(0.5 / 100),
-            BigInt(Math.floor(Math.log(1.1) / Math.log(1.0001))),
-            BigInt(3600e18),
-            1,
-            tokenA.address,
-            tokenB.address,
-          ],
-          0,
-          [
-            {
-              kind: 0,
-              isDelta: true,
-              pos: 0,
-              deltaA: floatToFixed(500),
-              deltaB: floatToFixed(500),
-            },
-          ],
-          0,
-          0,
-          maxDeadline
-        )
-      ).to.emit(factory, "PoolCreated");
-    });
-
-    it("is able to add and remove liquidity to existing pool", async () => {
-      let pool: string = await getPool(0.5, tokenA, tokenB, 500, 500);
-      const prePoolBalance = await balances(pool);
-      const tx = await router.addLiquidityToPool(
-        pool,
-        tokenId,
-        [
-          {
-            kind: 0,
-            isDelta: true,
-            pos: 0,
-            deltaA: floatToFixed(500),
-            deltaB: floatToFixed(500),
-          },
-        ],
-        0,
-        0,
-        maxDeadline
-      );
-      const receipt = await tx.wait();
-      const postPoolBalance = await balances(pool);
-
-      expect(postPoolBalance.tokenA - prePoolBalance.tokenA).to.eq(500);
-      expect(postPoolBalance.tokenB - prePoolBalance.tokenB).to.eq(500);
-
-      await position.approve(router.address, tokenId);
-
-      await router.removeLiquidity(
-        pool,
-        await owner.getAddress(),
-        tokenId,
-        [
-          {
-            binId: 1,
-            amount: floatToFixed(500),
-            maxDepth: 0,
-          },
-        ],
-        0,
-        0,
-        maxDeadline
-      );
-      const postRMPoolBalance = await balances(pool);
-      expect(postPoolBalance.tokenA - postRMPoolBalance.tokenA).to.eq(500);
-      expect(postPoolBalance.tokenB - postRMPoolBalance.tokenB).to.eq(500);
-      await position.approve(constants.AddressZero, tokenId);
-
-      // revert since we haven't approved the router
-      expect(
-        router.removeLiquidity(
-          pool,
-          await owner.getAddress(),
-          tokenId,
-          [
-            {
-              binId: 1,
-              amount: floatToFixed(1000),
-              maxDepth: 0,
-            },
-          ],
-          0,
-          0,
-          maxDeadline
-        )
-      ).to.be.revertedWith("P");
-
-      await position.approve(constants.AddressZero, tokenId);
-      await position.approve(router.address, tokenId);
-      expect(
-        router.removeLiquidity(
-          pool,
-          await owner.getAddress(),
-          tokenId,
-          [
-            {
-              binId: 1,
-              amount: floatToFixed(1000),
-              maxDepth: 0,
-            },
-          ],
-          floatToFixed(1000),
-          0,
-          maxDeadline
-        )
-      ).to.be.revertedWith("Too little removed");
-    });
-
-    it("respects activeTick limits", async () => {
-      let pool: string = await getPool(0.5, tokenA, tokenB, 50, 50);
-      expect(
-        router.addLiquidityWTickLimits(
-          pool,
-          tokenId,
-          [
-            {
-              kind: 0,
-              isDelta: true,
-              pos: 0,
-              deltaA: floatToFixed(50),
-              deltaB: floatToFixed(50),
-            },
-            {
-              kind: 0,
-              isDelta: true,
-              pos: 10,
-              deltaA: floatToFixed(50),
-              deltaB: floatToFixed(50),
-            },
-          ],
-          0,
-          0,
-          5,
-          11,
-          maxDeadline
-        )
-      ).to.be.revertedWith("activeTick not in range");
-    });
-
-    it("is able to add liquidity weth-token pool", async () => {
-      let pool: string = await getEthBPool(0.05, 5);
-      const prePoolBalance = await balances(pool);
-      await router.addLiquidityToPool(
-        pool,
-        tokenId,
-        [
-          {
-            kind: 0,
-            isDelta: true,
-            pos: 0,
-            deltaA: floatToFixed(5),
-            deltaB: floatToFixed(5),
-          },
-        ],
-        0,
-        0,
-        maxDeadline
-      );
-      const postPoolBalance = await balances(pool);
-      expect(postPoolBalance.weth9 - prePoolBalance.weth9).to.eq(5);
-      expect(postPoolBalance.tokenB - prePoolBalance.tokenB).to.eq(5);
-    });
-
-    it("reverts if deadline has passed", async () => {
-      let pool: string = await getEthBPool(0.05, 5);
-      await ethers.provider.send("evm_increaseTime", [3600]);
-      await ethers.provider.send("evm_mine", []);
-      expect(
-        router.addLiquidityToPool(
-          pool,
-          tokenId,
-          [
-            {
-              kind: 0,
-              isDelta: true,
-              pos: 0,
-              deltaA: floatToFixed(5),
-              deltaB: floatToFixed(5),
-            },
-          ],
-          0,
-          0,
-          1
-        )
-      ).to.be.revertedWith("Transaction too old");
-    });
-
-    it("is able to remove native ETH from weth-token pool", async () => {
-      let pool: string = await getEthBPool(0.05, 5);
-      const preEthBalance = await ethBalances();
-      const prePoolBalance = await balances(pool);
-      const preOwnerBalance = await balances(await owner.getAddress());
-      await position.approve(router.address, tokenId);
-
-      let callData = [
-        router.interface.encodeFunctionData("removeLiquidity", [
-          pool,
-          constants.AddressZero,
-          tokenId,
-          [
-            {
-              binId: 1,
-              amount: floatToFixed(1000),
-              maxDepth: 0,
-            },
-          ],
-          0,
-          0,
-          maxDeadline,
-        ]),
-      ];
-      callData.push(
-        router.interface.encodeFunctionData("unwrapWETH9", [
-          floatToFixed(0),
-          await owner.getAddress(),
-        ])
-      );
-      callData.push(
-        router.interface.encodeFunctionData("sweepToken", [
-          tokenB.address,
-          floatToFixed(0),
-          await owner.getAddress(),
-        ])
-      );
-
-      await router.multicall(callData);
-      const postPoolBalance = await balances(pool);
-      const postEthBalance = await ethBalances();
-      const postOwnerBalance = await balances(await owner.getAddress());
-
-      expect(postEthBalance.owner - preEthBalance.owner).to.be.approximately(
-        5,
-        0.001
-      );
-      expect(postPoolBalance.tokenB - prePoolBalance.tokenB).to.be.eq(-5);
-      expect(postOwnerBalance.weth9 - preOwnerBalance.weth9).to.be.eq(0);
-      expect(postPoolBalance.weth9 - prePoolBalance.weth9).to.be.eq(-5);
-    });
-  });
-
-  it("is able to add native eth liquidity to weth-token pool", async () => {
-    let pool: string = await getEthBPool(0.05, 5);
-    const preEthBalance = await ethBalances();
-    const prePoolBalance = await balances(pool);
-    await router.addLiquidityToPool(
-      pool,
-      tokenId,
-      [
-        {
-          kind: 0,
-          isDelta: true,
-          pos: 0,
-          deltaA: floatToFixed(5),
-          deltaB: floatToFixed(5),
-        },
-      ],
-      0,
-      0,
-      maxDeadline,
-      { value: floatToFixed(5) }
-    );
-    const postPoolBalance = await balances(pool);
-    const postEthBalance = await ethBalances();
-    expect(postEthBalance.owner - preEthBalance.owner).to.be.approximately(
-      -5,
-      0.001
-    );
-    expect(postPoolBalance.tokenB - prePoolBalance.tokenB).to.be.eq(5);
-    expect(postPoolBalance.weth9 - prePoolBalance.weth9).to.be.eq(5);
-  });
-
-  it("reverts if amount min on add liquidity not reached", async () => {
-    let pool: string = await getEthBPool(0.05, 5);
-    expect(
-      router.addLiquidityToPool(
-        pool,
-        tokenId,
-        [
-          {
-            kind: 0,
-            isDelta: true,
-            pos: 0,
-            deltaA: floatToFixed(5),
-            deltaB: floatToFixed(5),
-          },
-        ],
-        floatToFixed(6),
-        0,
-        maxDeadline,
-        { value: floatToFixed(5) }
-      )
-    ).to.be.revertedWith("Too little added");
   });
 
   describe("#swap exact in", () => {
@@ -596,55 +305,6 @@ describe("Router", () => {
       expect(postEthBalance.router).to.eq(0);
       expect(postPoolBalance.tokenB - prePoolBalance.tokenB).to.eq(1);
       expect(postEthBalance.owner - preEthBalance.owner).to.be.greaterThan(0.4);
-    });
-
-    it("is able to swap, weth->B->A", async () => {
-      let poolWETHB: string = await getEthBPool(0.05, 2);
-      let poolAB: string = await getPool(0.01, tokenA, tokenB, 500, 500);
-      const preABPoolBalance = await balances(poolAB);
-      const preETHPoolBalance = await balances(poolWETHB);
-      const preOwnerBalance = await balances(await owner.getAddress());
-      let path = encodePath([
-        weth9.address,
-        poolWETHB,
-        tokenB.address,
-        poolAB,
-        tokenA.address,
-      ]);
-      expect(
-        await router.exactInput([
-          path,
-          await owner.getAddress(),
-          maxDeadline,
-          floatToFixed(1),
-          0,
-          0,
-        ])
-      )
-        .to.emit(tokenA, "Transfer")
-        .to.emit(tokenB, "Transfer")
-        .to.emit(weth9, "Transfer");
-      const postABPoolBalance = await balances(poolAB);
-      const postETHPoolBalance = await balances(poolWETHB);
-      const postOwnerBalance = await balances(await owner.getAddress());
-      expect(postETHPoolBalance.weth9 - preETHPoolBalance.weth9).to.be.eq(1);
-      expect(
-        postETHPoolBalance.tokenB - preETHPoolBalance.tokenB
-      ).to.be.lessThan(-0.5);
-      expect(
-        postABPoolBalance.tokenB - preABPoolBalance.tokenB
-      ).to.be.greaterThan(0.5);
-      expect(postABPoolBalance.tokenA - preABPoolBalance.tokenA).to.be.lessThan(
-        -0.5
-      );
-
-      expect(
-        postOwnerBalance.tokenA - preOwnerBalance.tokenA
-      ).to.be.greaterThan(0.5);
-      expect(postOwnerBalance.tokenB - preOwnerBalance.tokenB).to.be.eq(0);
-      expect(postOwnerBalance.weth9 - preOwnerBalance.weth9).to.be.lessThan(
-        -0.5
-      );
     });
   });
 
@@ -858,88 +518,6 @@ describe("Router", () => {
         0.001
       );
     });
-
-    it("is able to multi-hop swap, A->B->WETH with one call", async () => {
-      let poolWETHB: string = await getEthBPool(0.05, 2);
-      let poolAB: string = await getPool(0.01, tokenA, tokenB, 500, 500);
-      const preABPoolBalance = await balances(poolAB);
-      const preETHPoolBalance = await balances(poolWETHB);
-      const preOwnerBalance = await balances(await owner.getAddress());
-
-      // path is in reverse order for exactOutput
-      let path = [
-        weth9.address,
-        poolWETHB,
-        tokenB.address,
-        poolAB,
-        tokenA.address,
-      ];
-
-      let hopIn = await router.callStatic.exactOutputSingle([
-        path[2],
-        path[0],
-        path[1],
-        await owner.getAddress(),
-        maxDeadline,
-        floatToFixed(1),
-        floatToFixed(1000),
-      ]);
-      let twoHopIn = await router.callStatic.exactOutputSingle([
-        path[4],
-        path[2],
-        path[3],
-        await owner.getAddress(),
-        maxDeadline,
-        hopIn,
-        floatToFixed(1000),
-      ]);
-
-      let pathEncoded = encodePath(path);
-      let requiredIn = await router.callStatic.exactOutput([
-        pathEncoded,
-        await owner.getAddress(),
-        maxDeadline,
-        floatToFixed(1),
-        floatToFixed(1000),
-      ]);
-      expect(twoHopIn).to.eq(requiredIn);
-
-      expect(
-        await router.exactOutput([
-          pathEncoded,
-          await owner.getAddress(),
-          maxDeadline,
-          floatToFixed(1),
-          floatToFixed(1000),
-        ])
-      )
-        .to.emit(tokenA, "Transfer")
-        .to.emit(tokenB, "Transfer")
-        .to.emit(weth9, "Transfer");
-      const postABPoolBalance = await balances(poolAB);
-      const postETHPoolBalance = await balances(poolWETHB);
-      const postOwnerBalance = await balances(await owner.getAddress());
-
-      expect(
-        postABPoolBalance.tokenA - preABPoolBalance.tokenA
-      ).to.be.greaterThan(1);
-      expect(postABPoolBalance.tokenB - preABPoolBalance.tokenB).to.lessThan(
-        -0.9
-      );
-      expect(postABPoolBalance.weth9 - preABPoolBalance.weth9).to.eq(0);
-
-      expect(postETHPoolBalance.tokenA - preETHPoolBalance.tokenA).to.eq(0);
-      expect(
-        postETHPoolBalance.tokenB - preETHPoolBalance.tokenB
-      ).to.greaterThan(0.9);
-      expect(postETHPoolBalance.weth9 - preETHPoolBalance.weth9).to.eq(-1);
-
-      expect(
-        postOwnerBalance.tokenA - preOwnerBalance.tokenA
-      ).to.be.approximately(-fixedToFloat(requiredIn), 0.000000001);
-      expect(postOwnerBalance.tokenB - preOwnerBalance.tokenB).to.eq(0);
-      expect(postOwnerBalance.weth9 - preOwnerBalance.weth9).to.eq(1);
-    });
   });
 
   describe("#swap limits exact out", () => {
@@ -957,43 +535,6 @@ describe("Router", () => {
           floatToFixed(1),
         ])
       ).to.be.revertedWith("Too much requested");
-    });
-
-    it("reverts if more than amountMax is required for multi hop", async () => {
-      let poolWETHB: string = await getEthBPool(0.05, 2);
-      let poolAB: string = await getPool(0.01, tokenA, tokenB, 500, 500);
-
-      // path is in reverse order for exactOutput
-      let path = [
-        weth9.address,
-        poolWETHB,
-        tokenB.address,
-        poolAB,
-        tokenA.address,
-      ];
-      let pathEncoded = encodePath(path);
-
-      expect(
-        router.exactOutput([
-          pathEncoded,
-          await owner.getAddress(),
-          maxDeadline,
-          floatToFixed(1),
-          floatToFixed(1),
-        ])
-      ).to.be.revertedWith("Too much requested");
-    });
-  });
-
-  describe("#migrate bins", () => {
-    it("returns pool event for migration when called", async () => {
-      let _fee = 0.01 / 100;
-      let pool: string = await getPool(_fee, tokenA, tokenB, 50, 50);
-      let poolContract = await Pool__factory.connect(pool, owner);
-
-      await expect(
-        router.migrateBinsUpStack(pool, [0, 1, 3], 0, maxDeadline)
-      ).to.emit(poolContract, "MigrateBinsUpStack");
     });
   });
 });

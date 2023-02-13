@@ -30,25 +30,21 @@ contract Router is IRouter, Multicall, SelfPermit, Deadline {
         address payer;
         bool exactOutput;
     }
-    /// @inheritdoc IRouter
-    IFactory public immutable override factory;
-    /// @inheritdoc IRouter
-    IPosition public immutable override position;
-    /// @inheritdoc IRouter
-    IWETH9 public immutable override WETH9;
-    constructor(
-        IFactory _factory,
-        IPosition _position,
-        IWETH9 _WETH9
-    ) {
+    /// @inheritdoc ISlimRouter
+    IFactory public immutable factory;
+    /// @inheritdoc ISlimRouter
+    IPosition public immutable position;
+    /// @inheritdoc ISlimRouter
+    IWETH9 public immutable WETH9;
+    constructor(IFactory _factory, IWETH9 _WETH9) {
         factory = _factory;
-        position = _position;
+        position = _factory.position();
         WETH9 = _WETH9;
     }
     receive() external payable {
         require(IWETH9(msg.sender) == WETH9, "Not WETH9");
     }
-    /// @inheritdoc IRouter
+    /// @inheritdoc ISlimRouter
     function unwrapWETH9(uint256 amountMinimum, address recipient) public payable override {
         uint256 balanceWETH9 = WETH9.balanceOf(address(this));
         require(balanceWETH9 >= amountMinimum, "Insufficient WETH9");
@@ -57,19 +53,15 @@ contract Router is IRouter, Multicall, SelfPermit, Deadline {
             TransferHelper.safeTransferETH(recipient, balanceWETH9);
         }
     }
-    /// @inheritdoc IRouter
-    function sweepToken(
-        IERC20 token,
-        uint256 amountMinimum,
-        address recipient
-    ) public payable {
+    /// @inheritdoc ISlimRouter
+    function sweepToken(IERC20 token, uint256 amountMinimum, address recipient) public payable {
         uint256 balanceToken = token.balanceOf(address(this));
         require(balanceToken >= amountMinimum, "Insufficient token");
         if (balanceToken > 0) {
             TransferHelper.safeTransfer(address(token), recipient, balanceToken);
         }
     }
-    /// @inheritdoc IRouter
+    /// @inheritdoc ISlimRouter
     function refundETH() external payable override {
         if (address(this).balance > 0) TransferHelper.safeTransferETH(msg.sender, address(this).balance);
     }
@@ -77,12 +69,7 @@ contract Router is IRouter, Multicall, SelfPermit, Deadline {
     /// @param payer The entity that must pay
     /// @param recipient The entity that will receive payment
     /// @param value The amount to pay
-    function pay(
-        IERC20 token,
-        address payer,
-        address recipient,
-        uint256 value
-    ) internal {
+    function pay(IERC20 token, address payer, address recipient, uint256 value) internal {
         if (IWETH9(address(token)) == WETH9 && address(this).balance >= value) {
             WETH9.deposit{value: value}();
             WETH9.transfer(recipient, value);
@@ -92,11 +79,7 @@ contract Router is IRouter, Multicall, SelfPermit, Deadline {
             TransferHelper.safeTransferFrom(address(token), payer, recipient, value);
         }
     }
-    function swapCallback(
-        uint256 amountToPay,
-        uint256 amountOut,
-        bytes calldata _data
-    ) external {
+    function swapCallback(uint256 amountToPay, uint256 amountOut, bytes calldata _data) external {
         require(amountToPay > 0 && amountOut > 0, "In or Out Amount is Zero");
         require(factory.isFactoryPool(IPool(msg.sender)), "Must call from a Factory Pool");
         SwapCallbackData memory data = abi.decode(_data, (SwapCallbackData));
@@ -114,24 +97,22 @@ contract Router is IRouter, Multicall, SelfPermit, Deadline {
             pay(tokenIn, data.payer, msg.sender, amountToPay);
         }
     }
-    function exactInputInternal(
-        uint256 amountIn,
-        address recipient,
-        uint256 sqrtPriceLimitD18,
-        SwapCallbackData memory data
-    ) private returns (uint256 amountOut) {
+    function exactInputInternal(uint256 amountIn, address recipient, uint256 sqrtPriceLimitD18, SwapCallbackData memory data) private returns (uint256 amountOut) {
         if (recipient == address(0)) recipient = address(this);
         (IERC20 tokenIn, IERC20 tokenOut, IPool pool) = data.path.decodeFirstPool();
         bool tokenAIn = tokenIn < tokenOut;
         (, amountOut) = pool.swap(recipient, amountIn, tokenAIn, false, sqrtPriceLimitD18, abi.encode(data));
     }
-    /// @inheritdoc IRouter
+    /// @inheritdoc ISlimRouter
     function exactInputSingle(ExactInputSingleParams calldata params) external payable override checkDeadline(params.deadline) returns (uint256 amountOut) {
-        amountOut = exactInputInternal(
+        bool tokenAIn = params.tokenIn < params.tokenOut;
+        (, amountOut) = params.pool.swap(
+            (params.recipient == address(0)) ? address(this) : params.recipient,
             params.amountIn,
-            params.recipient,
+            tokenAIn,
+            false,
             params.sqrtPriceLimitD18,
-            SwapCallbackData({path: abi.encodePacked(params.tokenIn, params.pool, params.tokenOut), payer: msg.sender, exactOutput: false})
+            abi.encode(SwapCallbackData({path: abi.encodePacked(params.tokenIn, params.pool, params.tokenOut), payer: msg.sender, exactOutput: false}))
         );
         require(amountOut >= params.amountOutMinimum, "Too little received");
     }
@@ -157,11 +138,7 @@ contract Router is IRouter, Multicall, SelfPermit, Deadline {
         require(amountOut >= params.amountOutMinimum, "Too little received");
     }
     /// @dev Performs a single exact output swap
-    function exactOutputInternal(
-        uint256 amountOut,
-        address recipient,
-        SwapCallbackData memory data
-    ) private returns (uint256 amountIn) {
+    function exactOutputInternal(uint256 amountOut, address recipient, SwapCallbackData memory data) private returns (uint256 amountIn) {
         if (recipient == address(0)) recipient = address(this);
         (IERC20 tokenOut, IERC20 tokenIn, IPool pool) = data.path.decodeFirstPool();
         bool tokenAIn = tokenIn < tokenOut;
@@ -169,13 +146,19 @@ contract Router is IRouter, Multicall, SelfPermit, Deadline {
         (amountIn, amountOutReceived) = pool.swap(recipient, amountOut, tokenAIn, true, 0, abi.encode(data));
         require(amountOutReceived == amountOut, "Requested amount not available");
     }
-    /// @inheritdoc IRouter
+    /// @inheritdoc ISlimRouter
     function exactOutputSingle(ExactOutputSingleParams calldata params) external payable override checkDeadline(params.deadline) returns (uint256 amountIn) {
-        amountIn = exactOutputInternal(
+        bool tokenAIn = params.tokenIn < params.tokenOut;
+        uint256 amountOutReceived;
+        (amountIn, amountOutReceived) = params.pool.swap(
+            (params.recipient == address(0)) ? address(this) : params.recipient,
             params.amountOut,
-            params.recipient,
-            SwapCallbackData({path: abi.encodePacked(params.tokenOut, params.pool, params.tokenIn), payer: msg.sender, exactOutput: true})
+            tokenAIn,
+            true,
+            0,
+            abi.encode(SwapCallbackData({path: abi.encodePacked(params.tokenOut, params.pool, params.tokenIn), payer: msg.sender, exactOutput: true}))
         );
+        require(amountOutReceived == params.amountOut, "Requested amount not available");
         require(amountIn <= params.amountInMaximum, "Too much requested");
         amountInCached = DEFAULT_AMOUNT_IN_CACHED;
     }
@@ -187,11 +170,7 @@ contract Router is IRouter, Multicall, SelfPermit, Deadline {
         amountInCached = DEFAULT_AMOUNT_IN_CACHED;
     }
     // Liqudity
-    function addLiquidityCallback(
-        uint256 amountA,
-        uint256 amountB,
-        bytes calldata _data
-    ) external {
+    function addLiquidityCallback(uint256 amountA, uint256 amountB, bytes calldata _data) external {
         AddLiquidityCallbackData memory data = abi.decode(_data, (AddLiquidityCallbackData));
         require(factory.isFactoryPool(IPool(msg.sender)));
         require(msg.sender == address(data.pool));
@@ -208,15 +187,7 @@ contract Router is IRouter, Multicall, SelfPermit, Deadline {
         IPool.AddLiquidityParams[] calldata params,
         uint256 minTokenAAmount,
         uint256 minTokenBAmount
-    )
-        private
-        returns (
-            uint256 receivingTokenId,
-            uint256 tokenAAmount,
-            uint256 tokenBAmount,
-            IPool.BinDelta[] memory binDeltas
-        )
-    {
+    ) private returns (uint256 receivingTokenId, uint256 tokenAAmount, uint256 tokenBAmount, IPool.BinDelta[] memory binDeltas) {
         if (tokenId == 0) {
             if (IPosition(position).tokenOfOwnerByIndexExists(msg.sender, 0)) {
                 tokenId = IPosition(position).tokenOfOwnerByIndex(msg.sender, 0);
@@ -237,17 +208,7 @@ contract Router is IRouter, Multicall, SelfPermit, Deadline {
         uint256 minTokenAAmount,
         uint256 minTokenBAmount,
         uint256 deadline
-    )
-        external
-        payable
-        checkDeadline(deadline)
-        returns (
-            uint256 receivingTokenId,
-            uint256 tokenAAmount,
-            uint256 tokenBAmount,
-            IPool.BinDelta[] memory binDeltas
-        )
-    {
+    ) external payable checkDeadline(deadline) returns (uint256 receivingTokenId, uint256 tokenAAmount, uint256 tokenBAmount, IPool.BinDelta[] memory binDeltas) {
         return addLiquidity(pool, tokenId, params, minTokenAAmount, minTokenBAmount);
     }
     /// @inheritdoc IRouter
@@ -260,17 +221,7 @@ contract Router is IRouter, Multicall, SelfPermit, Deadline {
         int32 minActiveTick,
         int32 maxActiveTick,
         uint256 deadline
-    )
-        external
-        payable
-        checkDeadline(deadline)
-        returns (
-            uint256 receivingTokenId,
-            uint256 tokenAAmount,
-            uint256 tokenBAmount,
-            IPool.BinDelta[] memory binDeltas
-        )
-    {
+    ) external payable checkDeadline(deadline) returns (uint256 receivingTokenId, uint256 tokenAAmount, uint256 tokenBAmount, IPool.BinDelta[] memory binDeltas) {
         int32 activeTick = pool.getState().activeTick;
         require(activeTick >= minActiveTick && activeTick <= maxActiveTick, "activeTick not in range");
         return addLiquidity(pool, tokenId, params, minTokenAAmount, minTokenBAmount);
@@ -291,28 +242,15 @@ contract Router is IRouter, Multicall, SelfPermit, Deadline {
         uint256 minTokenAAmount,
         uint256 minTokenBAmount,
         uint256 deadline
-    )
-        external
-        payable
-        checkDeadline(deadline)
-        returns (
-            uint256 receivingTokenId,
-            uint256 tokenAAmount,
-            uint256 tokenBAmount,
-            IPool.BinDelta[] memory binDeltas
-        )
-    {
+    ) external payable checkDeadline(deadline) returns (uint256 receivingTokenId, uint256 tokenAAmount, uint256 tokenBAmount, IPool.BinDelta[] memory binDeltas) {
         IPool pool = getOrCreatePool(poolParams);
         return addLiquidity(pool, tokenId, addParams, minTokenAAmount, minTokenBAmount);
     }
     /// @inheritdoc IRouter
-    function migrateBinsUpStack(
-        IPool pool,
-        uint128[] calldata binIds,
-        uint32 maxRecursion,
-        uint256 deadline
-    ) external checkDeadline(deadline) {
-        pool.migrateBinsUpStack(binIds, maxRecursion);
+    function migrateBinsUpStack(IPool pool, uint128[] calldata binIds, uint32 maxRecursion, uint256 deadline) external checkDeadline(deadline) {
+        for (uint256 i = 0; i < binIds.length; i++) {
+            pool.migrateBinUpStack(binIds[i], maxRecursion);
+        }
     }
     /// @inheritdoc IRouter
     function removeLiquidity(
@@ -323,15 +261,7 @@ contract Router is IRouter, Multicall, SelfPermit, Deadline {
         uint256 minTokenAAmount,
         uint256 minTokenBAmount,
         uint256 deadline
-    )
-        external
-        checkDeadline(deadline)
-        returns (
-            uint256 tokenAAmount,
-            uint256 tokenBAmount,
-            IPool.BinDelta[] memory binDeltas
-        )
-    {
+    ) external checkDeadline(deadline) returns (uint256 tokenAAmount, uint256 tokenBAmount, IPool.BinDelta[] memory binDeltas) {
         require(msg.sender == position.ownerOf(tokenId), "P");
         if (recipient == address(0)) recipient = address(this);
         (tokenAAmount, tokenBAmount, binDeltas) = pool.removeLiquidity(recipient, tokenId, params);

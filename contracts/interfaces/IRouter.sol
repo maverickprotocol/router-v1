@@ -6,29 +6,8 @@ import "@maverick/contracts/contracts/interfaces/IPool.sol";
 import "@maverick/contracts/contracts/interfaces/IPosition.sol";
 import "@maverick/contracts/contracts/interfaces/ISwapCallback.sol";
 import "./external/IWETH9.sol";
-interface IRouter is ISwapCallback {
-    /// @return Returns the address of the factory
-    function factory() external view returns (IFactory);
-    /// @return Returns the address of the Position NFT
-    function position() external view returns (IPosition);
-    /// @return Returns the address of WETH9
-    function WETH9() external view returns (IWETH9);
-    struct ExactInputSingleParams {
-        address tokenIn;
-        address tokenOut;
-        IPool pool;
-        address recipient;
-        uint256 deadline;
-        uint256 amountIn;
-        uint256 amountOutMinimum;
-        uint256 sqrtPriceLimitD18;
-    }
-    /// @notice Swaps `amountIn` of one token for as much as possible of
-    //another token
-    /// @param params The parameters necessary for the swap, encoded as
-    //`ExactInputSingleParams` in calldata
-    /// @return amountOut The amount of the received token
-    function exactInputSingle(ExactInputSingleParams calldata params) external payable returns (uint256 amountOut);
+import "./ISlimRouter.sol";
+interface IRouter is ISlimRouter {
     struct ExactInputParams {
         bytes path;
         address recipient;
@@ -42,21 +21,6 @@ interface IRouter is ISwapCallback {
     //as `ExactInputParams` in calldata
     /// @return amountOut The amount of the received token
     function exactInput(ExactInputParams calldata params) external payable returns (uint256 amountOut);
-    struct ExactOutputSingleParams {
-        address tokenIn;
-        address tokenOut;
-        IPool pool;
-        address recipient;
-        uint256 deadline;
-        uint256 amountOut;
-        uint256 amountInMaximum;
-    }
-    /// @notice Swaps as little as possible of one token for `amountOut` of
-    //another token
-    /// @param params The parameters necessary for the swap, encoded as
-    //`ExactOutputSingleParams` in calldata
-    /// @return amountIn The amount of the input token
-    function exactOutputSingle(ExactOutputSingleParams calldata params) external payable returns (uint256 amountIn);
     struct ExactOutputParams {
         bytes path;
         address recipient;
@@ -70,29 +34,10 @@ interface IRouter is ISwapCallback {
     //as `ExactOutputParams` in calldata
     /// @return amountIn The amount of the input token
     function exactOutput(ExactOutputParams calldata params) external payable returns (uint256 amountIn);
-    /// @notice Unwraps the contract's WETH9 balance and sends it to recipient as ETH.
-    /// @dev The amountMinimum parameter prevents malicious contracts from stealing WETH9 from users.
-    /// @param amountMinimum The minimum amount of WETH9 to unwrap
-    /// @param recipient The address receiving ETH
-    function unwrapWETH9(uint256 amountMinimum, address recipient) external payable;
-    /// @notice Refunds any ETH balance held by this contract to the `msg.sender`
-    /// @dev Useful for bundling with mint or increase liquidity that uses ether, or exact output swaps
-    /// that use ether for the input amount
-    function refundETH() external payable;
-    /// @notice Transfers the full amount of a token held by this contract to recipient
-    /// @dev The amountMinimum parameter prevents malicious contracts from stealing the token from users
-    /// @param token The contract address of the token which will be transferred to `recipient`
-    /// @param amountMinimum The minimum amount of token required for a transfer
-    /// @param recipient The destination address of the token
-    function sweepToken(
-        IERC20 token,
-        uint256 amountMinimum,
-        address recipient
-    ) external payable;
     struct PoolParams {
         uint256 fee;
         uint256 tickSpacing;
-        uint16 lookback;
+        int256 lookback;
         int32 activeTick;
         IERC20 tokenA;
         IERC20 tokenB;
@@ -111,15 +56,7 @@ interface IRouter is ISwapCallback {
         uint256 minTokenAAmount,
         uint256 minTokenBAmount,
         uint256 deadline
-    )
-        external
-        payable
-        returns (
-            uint256 receivingTokenId,
-            uint256 tokenAAmount,
-            uint256 tokenBAmount,
-            IPool.BinDelta[] memory binDeltas
-        );
+    ) external payable returns (uint256 receivingTokenId, uint256 tokenAAmount, uint256 tokenBAmount, IPool.BinDelta[] memory binDeltas);
     /// @notice add liquidity to a pool
     /// @param pool pool to add liquidity to
     /// @param tokenId nft id of token that will hold lp balance, use 0 to mint a new token
@@ -134,15 +71,7 @@ interface IRouter is ISwapCallback {
         uint256 minTokenAAmount,
         uint256 minTokenBAmount,
         uint256 deadline
-    )
-        external
-        payable
-        returns (
-            uint256 receivingTokenId,
-            uint256 tokenAAmount,
-            uint256 tokenBAmount,
-            IPool.BinDelta[] memory binDeltas
-        );
+    ) external payable returns (uint256 receivingTokenId, uint256 tokenAAmount, uint256 tokenBAmount, IPool.BinDelta[] memory binDeltas);
     /// @notice add liquidity to a pool with active tick limits
     /// @param pool pool to add liquidity to
     /// @param tokenId nft id of token that will hold lp balance, use 0 to mint a new token
@@ -161,26 +90,13 @@ interface IRouter is ISwapCallback {
         int32 minActiveTick,
         int32 maxActiveTick,
         uint256 deadline
-    )
-        external
-        payable
-        returns (
-            uint256 receivingTokenId,
-            uint256 tokenAAmount,
-            uint256 tokenBAmount,
-            IPool.BinDelta[] memory binDeltas
-        );
+    ) external payable returns (uint256 receivingTokenId, uint256 tokenAAmount, uint256 tokenBAmount, IPool.BinDelta[] memory binDeltas);
     /// @notice moves the head of input merged bins to the active bin
     /// @param pool to remove from
     /// @param binIds array of bin Ids to migrate
     /// @param maxRecursion maximum recursion depth before returning; 0=no max
     /// @param deadline epoch timestamp in seconds
-    function migrateBinsUpStack(
-        IPool pool,
-        uint128[] calldata binIds,
-        uint32 maxRecursion,
-        uint256 deadline
-    ) external;
+    function migrateBinsUpStack(IPool pool, uint128[] calldata binIds, uint32 maxRecursion, uint256 deadline) external;
     /// @notice remove liquidity from pool and receive WETH if one of the tokens is WETH
     /// @dev router must be approved for the withdrawing tokenId: Position.approve(router, tokenId)
     /// @param pool pool to remove from
@@ -198,11 +114,5 @@ interface IRouter is ISwapCallback {
         uint256 minTokenAAmount,
         uint256 minTokenBAmount,
         uint256 deadline
-    )
-        external
-        returns (
-            uint256 tokenAAmount,
-            uint256 tokenBAmount,
-            IPool.BinDelta[] memory binDeltas
-        );
+    ) external returns (uint256 tokenAAmount, uint256 tokenBAmount, IPool.BinDelta[] memory binDeltas);
 }

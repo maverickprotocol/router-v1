@@ -32,15 +32,7 @@ library Path {
     /// @return tokenIn The input in a path
     /// @return tokenOut The output in a path
     /// @return pool The pool
-    function decodeFirstPool(bytes memory path)
-        internal
-        pure
-        returns (
-            IERC20 tokenIn,
-            IERC20 tokenOut,
-            IPool pool
-        )
-    {
+    function decodeFirstPool(bytes memory path) internal pure returns (IERC20 tokenIn, IERC20 tokenOut, IPool pool) {
         tokenIn = IERC20(path.toAddress(0));
         pool = IPool(path.toAddress(ADDR_SIZE));
         tokenOut = IERC20(path.toAddress(NEXT_OFFSET));

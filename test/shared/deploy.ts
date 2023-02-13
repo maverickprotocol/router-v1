@@ -29,14 +29,20 @@ export const deployPoolInspector = async () => {
   return (await deployContract("PoolInspector", null)) as any;
 };
 
-export const deployRouter = async ({ factory, position, weth9 }: any) => {
+export const deployRouter = async ({ factory, weth9 }: any) => {
   const swapRouter = (await deployContract(
     "Router",
     {},
     factory,
-    position,
     weth9
   )) as any;
+  return swapRouter;
+};
+
+export const deploySlimRouter = async ({ factory, weth9 }: any) => {
+  const swapRouter = (await deployContract("SlimRouter", {}, factory, weth9, {
+    gasPrice: 500,
+  })) as any;
   return swapRouter;
 };
 
