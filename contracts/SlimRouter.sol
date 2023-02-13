@@ -12,14 +12,8 @@ import "./libraries/Multicall.sol";
 import "./libraries/SelfPermit.sol";
 contract SlimRouter is ISlimRouter, Multicall, SelfPermit, Deadline {
     /// @inheritdoc ISlimRouter
-    IFactory public immutable factory;
-    /// @inheritdoc ISlimRouter
-    IPosition public immutable position;
-    /// @inheritdoc ISlimRouter
     IWETH9 public immutable WETH9;
-    constructor(IFactory _factory, IWETH9 _WETH9) {
-        factory = _factory;
-        position = _factory.position();
+    constructor(IWETH9 _WETH9) {
         WETH9 = _WETH9;
     }
     receive() external payable {
@@ -61,7 +55,7 @@ contract SlimRouter is ISlimRouter, Multicall, SelfPermit, Deadline {
         }
     }
     // Ensure that you only approve the correct input amount and revoke the rights after the transaction is done
-    function swapCallback(uint256 amountToPay, uint256 amountOut, bytes calldata _data) external {
+    function swapCallback(uint256 amountToPay, uint256, bytes calldata _data) external {
         (address token, address payer) = abi.decode(_data, (address, address));
         pay(IERC20(token), payer, msg.sender, amountToPay);
     }

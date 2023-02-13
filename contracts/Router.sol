@@ -30,9 +30,9 @@ contract Router is IRouter, Multicall, SelfPermit, Deadline {
         address payer;
         bool exactOutput;
     }
-    /// @inheritdoc ISlimRouter
+    /// @inheritdoc IRouter
     IFactory public immutable factory;
-    /// @inheritdoc ISlimRouter
+    /// @inheritdoc IRouter
     IPosition public immutable position;
     /// @inheritdoc ISlimRouter
     IWETH9 public immutable WETH9;

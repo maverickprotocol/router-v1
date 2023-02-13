@@ -40,7 +40,7 @@ export const deployRouter = async ({ factory, weth9 }: any) => {
 };
 
 export const deploySlimRouter = async ({ factory, weth9 }: any) => {
-  const swapRouter = (await deployContract("SlimRouter", {}, factory, weth9, {
+  const swapRouter = (await deployContract("SlimRouter", {}, weth9, {
     gasPrice: 500,
   })) as any;
   return swapRouter;

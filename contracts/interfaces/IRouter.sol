@@ -8,6 +8,10 @@ import "@maverick/contracts/contracts/interfaces/ISwapCallback.sol";
 import "./external/IWETH9.sol";
 import "./ISlimRouter.sol";
 interface IRouter is ISlimRouter {
+    /// @return Returns the address of the factory
+    function factory() external view returns (IFactory);
+    /// @return Returns the address of the Position NFT
+    function position() external view returns (IPosition);
     struct ExactInputParams {
         bytes path;
         address recipient;

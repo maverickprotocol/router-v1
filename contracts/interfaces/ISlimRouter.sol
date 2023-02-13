@@ -1,16 +1,10 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 pragma solidity ^0.8.0;
 import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
-import "@maverick/contracts/contracts/interfaces/IFactory.sol";
 import "@maverick/contracts/contracts/interfaces/IPool.sol";
-import "@maverick/contracts/contracts/interfaces/IPosition.sol";
 import "@maverick/contracts/contracts/interfaces/ISwapCallback.sol";
 import "./external/IWETH9.sol";
 interface ISlimRouter is ISwapCallback {
-    /// @return Returns the address of the factory
-    function factory() external view returns (IFactory);
-    /// @return Returns the address of the Position NFT
-    function position() external view returns (IPosition);
     /// @return Returns the address of WETH9
     function WETH9() external view returns (IWETH9);
     struct ExactInputSingleParams {

@@ -105,7 +105,6 @@ describe("SlimRouter", () => {
     });
 
     router = await deployRouter({
-      factory: factory.address,
       weth9: weth9.address,
     });
     fatRouter = await deployFatRouter({
